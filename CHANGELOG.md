@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.4
+
+- Added SQLite WAL-backed task state persistence for the internal worker.
+- Added concurrent task status updates with transaction-safe success and failure writes.
+- Kept the Redis-triggered batch worker structure and high-throughput HTTP execution skeleton.
+
 ## 1.0.3
 
 - Cleaned generated Python cache artifacts from the repository.
