@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.10
+
+- Updated the local context builder with user-supplied changes.
+- Kept the orchestrator flow and SQLite task path intact.
+- Synced the current workspace state to GitHub.
+
 ## 1.0.9
 
 - Added a dedicated local context builder for client CSV data.
