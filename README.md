@@ -2,6 +2,8 @@
 
 Initial scaffold for the Goldspade project.
 
+Current version: `1.0.1`
+
 ## Next steps
 
 - Choose the app stack
