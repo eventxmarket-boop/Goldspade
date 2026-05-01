@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.2
+
+- Added the first compliant RPA architecture scaffold.
+- Introduced Python orchestration, Go execution, Redis queueing, and SQLite persistence layout.
+- Added a unified startup script and architecture documentation.
+
 ## 1.0.1
 
 - Added the initial Goldspade scaffold.

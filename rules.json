@@ -1,0 +1,24 @@
+{
+  "version": "1.0.2",
+  "regions": {
+    "Barcelona": "08",
+    "Madrid": "28"
+  },
+  "business_types": {
+    "Toma_de_huellas": "4010"
+  },
+  "parsing_rules": {
+    "csrf_token": {
+      "xpath": "//input[@name='csrf_token']/@value",
+      "regex": "name=\"csrf_token\" value=\"([^\"]+)\""
+    }
+  },
+  "endpoints": {
+    "submit": "/persona-api/tasks/submit",
+    "status": "/persona-api/tasks/status"
+  },
+  "limits": {
+    "max_concurrency": 4,
+    "max_requests_per_minute": 30
+  }
+}
