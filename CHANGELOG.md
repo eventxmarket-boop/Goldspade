@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.6
+
+- Added a SQLite seed script for internal mock order data.
+- Kept the seeded payload aligned with the Go executor task context format.
+- Preserved the Python orchestrator as a pure internal task forwarder.
+
 ## 1.0.5
 
 - Updated the Python orchestrator to act as a pure internal task forwarder.
