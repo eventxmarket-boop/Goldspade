@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.8
+
+- Activated the Python rule engine as a market monitor and signal generator for the internal backtest loop.
+- Added SQLite task insertion on trigger with a 60-second cooldown guard.
+- Kept the Redis handoff and Go executor alignment unchanged.
+
 ## 1.0.7
 
 - Added a Redis-based pipeline verification script for end-to-end field alignment.

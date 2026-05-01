@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict
 import logging
+from uuid import uuid4
 
 import aiohttp
 import redis.asyncio as redis
@@ -26,23 +27,73 @@ class RulesState:
 
 
 class RuleEngine:
-    def __init__(self, rules_path: Path) -> None:
+    def __init__(self, rules_path: Path, repo: "TaskRepository") -> None:
         self.rules_path = rules_path
+        self.repo = repo
         self.state: RulesState | None = None
+        self._last_trigger_at = 0.0
+        self._file_mtime: float | None = None
 
     def load(self) -> RulesState:
         data = json.loads(self.rules_path.read_text(encoding="utf-8"))
         return RulesState(raw=data, mtime=self.rules_path.stat().st_mtime)
 
+    def _reload_if_needed(self) -> None:
+        try:
+            current_mtime = self.rules_path.stat().st_mtime
+        except FileNotFoundError:
+            return
+
+        if self.state is None or self._file_mtime is None or current_mtime > self._file_mtime:
+            self.state = self.load()
+            self._file_mtime = self.state.mtime
+
+    def _should_trigger(self) -> bool:
+        return (time.time() - self._last_trigger_at) >= 60
+
+    def _insert_mock_task(self) -> None:
+        if self.state is None:
+            return
+
+        mock_user_info = self.state.raw.get("mock_user_info")
+        if not isinstance(mock_user_info, dict):
+            log.warning("mock_user_info missing or invalid in rules.json; skipping trigger")
+            return
+
+        task_id = self.repo.insert_task(json.dumps(mock_user_info, ensure_ascii=False))
+        self._last_trigger_at = time.time()
+        log.info("Inserted triggered mock task %s", task_id)
+
     async def watch(self) -> None:
-        while True:
-            await asyncio.sleep(5)
-            try:
-                current_mtime = self.rules_path.stat().st_mtime
-            except FileNotFoundError:
-                continue
-            if self.state is None or current_mtime > self.state.mtime:
-                self.state = self.load()
+        timeout = aiohttp.ClientTimeout(total=10.0)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            while True:
+                self._reload_if_needed()
+                if self.state is None:
+                    await asyncio.sleep(5)
+                    continue
+
+                rules = self.state.raw
+                monitor_url = rules.get("monitor_url")
+                trigger_keyword = rules.get("trigger_keyword")
+                poll_interval = float(rules.get("poll_interval", 5))
+
+                if not monitor_url or not trigger_keyword:
+                    await asyncio.sleep(poll_interval)
+                    continue
+
+                try:
+                    async with session.get(str(monitor_url)) as resp:
+                        body_text = await resp.text()
+                except (aiohttp.ClientError, asyncio.TimeoutError) as exc:
+                    log.warning("market monitor request failed: %s", exc)
+                    await asyncio.sleep(poll_interval)
+                    continue
+
+                if trigger_keyword in body_text and self._should_trigger():
+                    self._insert_mock_task()
+
+                await asyncio.sleep(poll_interval)
 
 
 class TaskRepository:
@@ -55,6 +106,24 @@ class TaskRepository:
         try:
             conn.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
             conn.commit()
+        finally:
+            conn.close()
+
+    def insert_task(self, user_info: str) -> str:
+        task_id = str(uuid4())
+
+        conn = sqlite3.connect(self.db_path)
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            conn.execute(
+                """
+                INSERT INTO tasks (task_id, user_info, status, created_at, updated_at)
+                VALUES (?, ?, 'pending', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                """,
+                (task_id, user_info),
+            )
+            conn.commit()
+            return task_id
         finally:
             conn.close()
 
@@ -267,10 +336,10 @@ async def process_task_queue(
 
 
 async def main() -> None:
-    engine = RuleEngine(RULES_PATH)
-    engine.state = engine.load()
     repo = TaskRepository(DB_PATH)
     repo.ensure_schema()
+    engine = RuleEngine(RULES_PATH, repo)
+    engine.state = engine.load()
 
     redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
     redis_client = redis.from_url(redis_url)
