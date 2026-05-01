@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.7
+
+- Added a Redis-based pipeline verification script for end-to-end field alignment.
+- Validated that fused task payloads match the Go executor struct exactly.
+- Kept the internal worker and mock seed flow unchanged.
+
 ## 1.0.6
 
 - Added a SQLite seed script for internal mock order data.
