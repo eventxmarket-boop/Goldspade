@@ -12,6 +12,8 @@ from uuid import uuid4
 import aiohttp
 import redis.asyncio as redis
 
+from context_builder import DataLoader
+
 
 log = logging.getLogger(__name__)
 
@@ -30,6 +32,7 @@ class RuleEngine:
     def __init__(self, rules_path: Path, repo: "TaskRepository") -> None:
         self.rules_path = rules_path
         self.repo = repo
+        self.data_loader = DataLoader()
         self.state: RulesState | None = None
         self._last_trigger_at = 0.0
         self._file_mtime: float | None = None
@@ -55,14 +58,18 @@ class RuleEngine:
         if self.state is None:
             return
 
-        mock_user_info = self.state.raw.get("mock_user_info")
-        if not isinstance(mock_user_info, dict):
-            log.warning("mock_user_info missing or invalid in rules.json; skipping trigger")
+        contexts = self.data_loader.build_fused_contexts("http://localhost:9090/mock_match")
+        if not contexts:
+            log.warning("clients.csv is empty; no mock tasks were inserted")
             return
 
-        task_id = self.repo.insert_task(json.dumps(mock_user_info, ensure_ascii=False))
+        inserted = 0
+        for context in contexts:
+            self.repo.insert_task(json.dumps(context, ensure_ascii=False))
+            inserted += 1
+
         self._last_trigger_at = time.time()
-        log.info("Inserted triggered mock task %s", task_id)
+        log.info("Inserted %d triggered mock tasks", inserted)
 
     async def watch(self) -> None:
         timeout = aiohttp.ClientTimeout(total=10.0)

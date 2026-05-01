@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.9
+
+- Added a dedicated local context builder for client CSV data.
+- Switched the rule engine to batch-insert mock tasks from assembled local contexts.
+- Kept the workflow fully local and removed any proxy rotation assumptions.
+
 ## 1.0.8
 
 - Activated the Python rule engine as a market monitor and signal generator for the internal backtest loop.
