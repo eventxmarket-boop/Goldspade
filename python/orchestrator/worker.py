@@ -12,6 +12,7 @@ import aiohttp
 
 RULES_PATH = Path(__file__).resolve().parents[2] / "rules.json"
 DB_PATH = Path(__file__).resolve().parents[2] / "shared" / "goldspade.sqlite3"
+SCHEMA_PATH = Path(__file__).resolve().parents[2] / "shared" / "schema.sql"
 
 
 @dataclass
@@ -48,17 +49,7 @@ class TaskRepository:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         conn = sqlite3.connect(self.db_path)
         try:
-            conn.executescript(
-                """
-                CREATE TABLE IF NOT EXISTS tasks (
-                    task_id TEXT PRIMARY KEY,
-                    user_info TEXT NOT NULL,
-                    status TEXT NOT NULL,
-                    created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL
-                );
-                """
-            )
+            conn.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
             conn.commit()
         finally:
             conn.close()
