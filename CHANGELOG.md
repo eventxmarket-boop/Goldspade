@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.5
+
+- Updated the Python orchestrator to act as a pure internal task forwarder.
+- Added Redis async queue handoff for fused task context payloads.
+- Kept SQLite task state at `processing` until the Go worker completes final confirmation.
+
 ## 1.0.4
 
 - Added SQLite WAL-backed task state persistence for the internal worker.

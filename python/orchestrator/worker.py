@@ -6,9 +6,13 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict
+import logging
 
 import aiohttp
+import redis.asyncio as redis
 
+
+log = logging.getLogger(__name__)
 
 RULES_PATH = Path(__file__).resolve().parents[2] / "rules.json"
 DB_PATH = Path(__file__).resolve().parents[2] / "shared" / "goldspade.sqlite3"
@@ -50,6 +54,56 @@ class TaskRepository:
         conn = sqlite3.connect(self.db_path)
         try:
             conn.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
+            conn.commit()
+        finally:
+            conn.close()
+
+    def fetch_pending_task(self) -> Dict[str, Any] | None:
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute(
+                """
+                SELECT task_id, user_info
+                FROM tasks
+                WHERE status = 'pending'
+                ORDER BY created_at ASC
+                LIMIT 1
+                """
+            ).fetchone()
+            if row is None:
+                conn.rollback()
+                return None
+
+            conn.execute(
+                """
+                UPDATE tasks
+                SET status = 'processing', updated_at = CURRENT_TIMESTAMP
+                WHERE task_id = ?
+                """,
+                (row["task_id"],),
+            )
+            conn.commit()
+            return {"task_id": row["task_id"], "user_info": row["user_info"]}
+        finally:
+            conn.close()
+
+    def update_task_status(self, task_id: str, status: str) -> None:
+        if status not in {"success", "failed"}:
+            raise ValueError(f"unsupported task status: {status!r}")
+
+        conn = sqlite3.connect(self.db_path)
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            conn.execute(
+                """
+                UPDATE tasks
+                SET status = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE task_id = ?
+                """,
+                (status, task_id),
+            )
             conn.commit()
         finally:
             conn.close()
@@ -182,17 +236,61 @@ class CognitiveTaskClient:
         return await self.poll_work_order_result(ticket_id)
 
 
+async def process_task_queue(
+    repo: TaskRepository,
+    client: CognitiveTaskClient,
+    redis_client: redis.Redis,
+) -> None:
+    while True:
+        task = repo.fetch_pending_task()
+        if task is None:
+            await asyncio.sleep(5)
+            continue
+
+        task_id = task["task_id"]
+        user_info = task["user_info"]
+        try:
+            resolution_data = await client.execute_task(
+                title=f"Process task {task_id}",
+                description="Auto-submitted by the workflow orchestrator",
+                metadata={"task_id": task_id, "user_info": user_info},
+            )
+            fused_context = json.loads(user_info)
+            fused_context["task_uuid"] = task_id
+            fused_context["authorization_token"] = resolution_data
+            await redis_client.lpush("list:ready_tasks", json.dumps(fused_context))
+        except (RuntimeError, TimeoutError):
+            repo.update_task_status(task_id, "failed")
+        except (json.JSONDecodeError, TypeError, ValueError, redis.RedisError) as exc:
+            log.error("❌ [Task %s] Context fusion or Redis push failed: %s", task_id, exc)
+            repo.update_task_status(task_id, "failed")
+
+
 async def main() -> None:
     engine = RuleEngine(RULES_PATH)
     engine.state = engine.load()
     repo = TaskRepository(DB_PATH)
     repo.ensure_schema()
 
-    watcher = asyncio.create_task(engine.watch())
+    redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
+    redis_client = redis.from_url(redis_url)
     try:
-        await watcher
+        await redis_client.ping()
+    except redis.RedisError as exc:
+        raise RuntimeError(f"failed to connect to Redis: {exc}") from exc
+
+    client = CognitiveTaskClient(
+        base_url=os.environ.get("WORK_ORDER_BASE_URL", "http://localhost:8080/work-orders"),
+        api_key=os.environ.get("WORK_ORDER_API_KEY"),
+    )
+    watcher = asyncio.create_task(engine.watch())
+    worker_task = asyncio.create_task(process_task_queue(repo, client, redis_client))
+    try:
+        await asyncio.gather(watcher, worker_task)
     finally:
         watcher.cancel()
+        worker_task.cancel()
+        await redis_client.close()
 
 
 if __name__ == "__main__":
