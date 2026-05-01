@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.3
+
+- Cleaned generated Python cache artifacts from the repository.
+- Extended ignore rules for `__pycache__`, `*.pyc`, and local SQLite files.
+
 ## 1.0.2
 
 - Added the first compliant RPA architecture scaffold.

@@ -2,7 +2,7 @@
 
 Enterprise-grade compliant RPA scaffold for workflow orchestration and reliable task dispatch.
 
-Current version: `1.0.2`
+Current version: `1.0.3`
 
 ## Layout
 
