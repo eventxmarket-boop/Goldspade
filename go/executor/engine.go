@@ -1,14 +1,14 @@
 package main
 
 import (
-	\"bytes\"
-	\"fmt\"
-	\"net\"
-	\"net/http\"
-	\"strings\"
-	\"sync\"
-	\"sync/atomic\"
-	\"time\"
+	"bytes"
+	"fmt"
+	"net"
+	"net/http"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
 )
 
 // EgressEngine 极限并发引擎
@@ -28,8 +28,8 @@ func NewEgressEngine(concurrency int) *EgressEngine {
 			Timeout:   5 * time.Second,
 			KeepAlive: 15 * time.Second,
 		}).DialContext,
-		WriteBufferSize: 8192,
-		ReadBufferSize:  8192,
+		WriteBufferSize:  8192,
+		ReadBufferSize:   8192,
 		ForceAttemptHTTP2: false, // 降低旧版 F5 握手失败率
 	}
 
@@ -47,7 +47,7 @@ func (e *EgressEngine) Fire(task *TaskContext) {
 	var wg sync.WaitGroup
 	var successCount, failCount atomic.Int32
 
-	fmt.Printf(\"⚡️ [Engine] Firing %d concurrent requests for Task: %s\\n\", e.concurrency, task.TaskUUID)
+	fmt.Printf("⚡️ [Engine] Firing %d concurrent requests for Task: %s\n", e.concurrency, task.TaskUUID)
 	start := time.Now()
 
 	for i := 0; i < e.concurrency; i++ {
@@ -56,22 +56,22 @@ func (e *EgressEngine) Fire(task *TaskContext) {
 			defer wg.Done()
 
 			// 动态注入打码 Token 到 Payload
-			payload := strings.Replace(task.PayloadTemplate, \"{TOKEN}\", task.AuthorizationToken, -1)
+			payload := strings.Replace(task.PayloadTemplate, "{TOKEN}", task.AuthorizationToken, -1)
 
-			req, err := http.NewRequest(\"POST\", task.TargetEndpoint, bytes.NewBuffer([]byte(payload)))
+			req, err := http.NewRequest("POST", task.TargetEndpoint, bytes.NewBuffer([]byte(payload)))
 			if err != nil {
 				failCount.Add(1)
 				return
 			}
 
 			// 挂载由 Python 预热好的真实 Cookie 和 User-Agent
-			if cookie, ok := task.HTTPContext[\"Cookie\"]; ok {
-				req.Header.Set(\"Cookie\", cookie)
+			if cookie, ok := task.HTTPContext["Cookie"]; ok {
+				req.Header.Set("Cookie", cookie)
 			}
-			if ua, ok := task.HTTPContext[\"User-Agent\"]; ok {
-				req.Header.Set(\"User-Agent\", ua)
+			if ua, ok := task.HTTPContext["User-Agent"]; ok {
+				req.Header.Set("User-Agent", ua)
 			}
-			req.Header.Set(\"Content-Type\", \"application/x-www-form-urlencoded\")
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
 			resp, err := e.client.Do(req)
 			if err != nil {
@@ -92,6 +92,6 @@ func (e *EgressEngine) Fire(task *TaskContext) {
 	wg.Wait()
 	elapsed := time.Since(start)
 
-	fmt.Printf(\"🏁 [Engine] Task %s Finished in %v | Success: %d | Failed: %d\\n\",
+	fmt.Printf("🏁 [Engine] Task %s Finished in %v | Success: %d | Failed: %d\n",
 		task.TaskUUID, elapsed, successCount.Load(), failCount.Load())
 }

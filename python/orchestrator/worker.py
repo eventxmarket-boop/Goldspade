@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import asyncio
 import json
 import os
@@ -7,6 +9,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict
 import logging
+import sys
+
+logging.basicConfig(
+    level=logging.INFO,
+    stream=sys.stdout,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    force=True,
+)
 from uuid import uuid4
 
 import aiohttp
@@ -325,26 +335,47 @@ async def process_task_queue(
 
         task_id = task["task_id"]
         user_info = task["user_info"]
+
+        log.info("⏳ [Task %s] Fetched from DB, starting processing...", task_id)
+
         try:
             resolution_data = await client.execute_task(
                 title=f"Process task {task_id}",
                 description="Auto-submitted by the workflow orchestrator",
                 metadata={"task_id": task_id, "user_info": user_info},
             )
+
+            log.info("✅ [Task %s] execute_task completed. Fusing context...", task_id)
+
             fused_context = json.loads(user_info)
             fused_context["task_uuid"] = task_id
             fused_context["authorization_token"] = resolution_data
             await redis_client.lpush("list:ready_tasks", json.dumps(fused_context))
-        except (RuntimeError, TimeoutError):
+
+            repo.update_task_status(task_id, "success")
+            log.info("🚀 [Task %s] Pushed to Redis and marked as success.", task_id)
+        except (RuntimeError, TimeoutError) as exc:
+            log.error("❌ [Task %s] Timeout or API Error during execute_task: %s", task_id, exc)
             repo.update_task_status(task_id, "failed")
         except (json.JSONDecodeError, TypeError, ValueError, redis.RedisError) as exc:
             log.error("❌ [Task %s] Context fusion or Redis push failed: %s", task_id, exc)
             repo.update_task_status(task_id, "failed")
+        except Exception as exc:
+            log.error("❌ [Task %s] Unexpected fatal error: %s", task_id, exc)
+            repo.update_task_status(task_id, "failed")
 
+
+print("Worker starting...", flush=True)
+print(f"REDIS_URL={os.environ.get('REDIS_URL','redis://localhost:6379/0')}", flush=True)
+work_order_url = os.environ.get('WORK_ORDER_BASE_URL', 'http://localhost:9090/work-orders')
+print(f"WORK_ORDER_BASE_URL={work_order_url}", flush=True)
 
 async def main() -> None:
+    print("DEBUG: entering main()", flush=True)
     repo = TaskRepository(DB_PATH)
     repo.ensure_schema()
+    print("DEBUG: repo initialized", flush=True)
+
     engine = RuleEngine(RULES_PATH, repo)
     engine.state = engine.load()
 
@@ -352,13 +383,16 @@ async def main() -> None:
     redis_client = redis.from_url(redis_url)
     try:
         await redis_client.ping()
+        print(f"DEBUG: Redis connected at {redis_url}", flush=True)
     except redis.RedisError as exc:
+        print(f"ERROR: Redis connection failed: {exc}", flush=True)
         raise RuntimeError(f"failed to connect to Redis: {exc}") from exc
 
     client = CognitiveTaskClient(
-        base_url=os.environ.get("WORK_ORDER_BASE_URL", "http://localhost:8080/work-orders"),
+        base_url=os.environ.get("WORK_ORDER_BASE_URL", "http://localhost:9090/work-orders"),
         api_key=os.environ.get("WORK_ORDER_API_KEY"),
     )
+    print("DEBUG: components ready, starting watchers", flush=True)
     watcher = asyncio.create_task(engine.watch())
     worker_task = asyncio.create_task(process_task_queue(repo, client, redis_client))
     try:

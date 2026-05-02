@@ -1,8 +1,10 @@
 module goldspade/executor
 
-go 1.21
+go 1.24
+
+require github.com/redis/go-redis/v9 v9.19.0
 
 require (
-	github.com/go-redis/redis/v8 v8.11.5
-	github.com/mattn/go-sqlite3 v1.14.24
+	github.com/cespare/xxhash/v2 v2.3.0 // indirect
+	go.uber.org/atomic v1.11.0 // indirect
 )
